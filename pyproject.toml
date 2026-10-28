@@ -22,7 +22,7 @@ dev = ["pytest>=8"]
 include = ["feiyubot*"]
 
 [tool.setuptools.package-data]
-"feiyubot.web" = ["static/*"]
+"feiyubot.web" = ["ui/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

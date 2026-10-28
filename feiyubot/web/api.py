@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from feiyubot.core.llm import LLMError, chat_completions_url
 from feiyubot.core.models import Provider, Settings
@@ -16,7 +17,8 @@ from feiyubot.core.pipeline import Incoming, load_extensions
 from feiyubot.core.store import iso, mask_secret, new_id, public_message, utcnow
 from feiyubot.service import Service, read_runtime, write_runtime
 
-STATIC_DIR = Path(__file__).parent / "static"
+UI_DIR = Path(__file__).parent / "ui"
+SPA_PAGES = ("/memory", "/providers", "/personas", "/connection", "/settings")
 COOKIE = "feiyu_session"
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _WEB_SESSION = re.compile(r"web:[a-f0-9]{12}")
@@ -29,15 +31,26 @@ def install(app: FastAPI, service: Service) -> None:
     def health() -> dict:
         return {"ok": True, "service": "feiyubot"}
 
-    @app.get("/")
     def index() -> FileResponse:
-        return FileResponse(STATIC_DIR / "index.html")
+        page = UI_DIR / "index.html"
+        if not page.is_file():
+            raise HTTPException(503, "界面还没构建。在 frontend 目录执行 npm run build")
+        return FileResponse(page)
 
-    @app.get("/static/{name}")
-    def static_file(name: str) -> FileResponse:
-        if name not in {"app.js", "app.css", "index.html"}:
+    app.add_api_route("/", index, methods=["GET"])
+    for path in SPA_PAGES:
+        app.add_api_route(path, index, methods=["GET"])
+
+    @app.get("/favicon.svg")
+    def favicon() -> FileResponse:
+        icon = UI_DIR / "favicon.svg"
+        if not icon.is_file():
             raise HTTPException(404, "没有这个文件")
-        return FileResponse(STATIC_DIR / name)
+        return FileResponse(icon)
+
+    assets = UI_DIR / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="ui-assets")
 
 
 def build_router(service: Service) -> APIRouter:

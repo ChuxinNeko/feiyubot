@@ -25,6 +25,14 @@ python bot.py
 
 浏览器打开 <http://127.0.0.1:8080/> 。`.env` 里的默认管理密码是 `feiyu-admin`，登录后请在「设置」里改掉。如果没设置密码，首次启动会把随机密码写到 `data/admin_password.txt`。
 
+界面在 `frontend/`，用 Vite、React 和 shadcn/ui。仓库里已经带构建结果 `feiyubot/web/ui`。改完页面后重新构建：
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
 数据库在 `data/feiyu.sqlite`。
 
 ## 接 QQ
@@ -33,7 +41,7 @@ python bot.py
 
 `ws://<飞鱼地址>:8080/onebot/v11/ws`
 
-令牌和飞鱼的 `ONEBOT_V11_ACCESS_TOKEN` 相同。也可以在 WebUI 的 OneBot 页写入 `data/runtime.env`，重启后生效。正向连接则把 NapCat 的 ws 地址填在同一页。
+令牌和飞鱼的 `ONEBOT_V11_ACCESS_TOKEN` 相同。也可以在 WebUI 的「连接 QQ」页写入 `data/runtime.env`，重启后生效。要让飞鱼主动连出去，在同一页展开正向 WebSocket。
 
 机器人默认只在被 @、被回复，或收到 `/` 命令时开口，但其他群消息仍会记入该群的上下文。要每句都回，把唤醒改成「每句都回复」。
 
