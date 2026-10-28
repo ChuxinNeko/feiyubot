@@ -73,6 +73,8 @@ python scripts/mock_openai.py
 pytest
 ```
 
+其中会拉起一次飞鱼，用 OneBot v11 反向 WebSocket 发群消息：没被 @ 的话只记下来，被 @ 之后连同那句一起送给模型。进程重启后再问，回复仍然带着之前的事实。
+
 ## Docker
 
 ```bash

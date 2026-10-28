@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -58,10 +59,18 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[mock] {self.address_string()} {fmt % args}")
 
 
+def serve(port: int = 8765) -> ThreadingHTTPServer:
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 def main() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
-    print("mock openai http://127.0.0.1:8765/v1/chat/completions")
-    server.serve_forever()
+    import sys
+
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    print(f"mock openai http://127.0.0.1:{port}/v1/chat/completions")
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
