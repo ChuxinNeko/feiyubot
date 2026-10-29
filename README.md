@@ -37,9 +37,11 @@ npm run build
 
 ## 接 QQ
 
-用 NapCat、Lagrange 或其他 OneBot v11 实现，反向 WebSocket 填：
+用 NapCat、Lagrange、[SnowLuma](https://snowluma.github.io/zh/) 或其他 OneBot v11 实现，反向 WebSocket 填：
 
 `ws://<飞鱼地址>:8080/onebot/v11/ws`
+
+SnowLuma 跑在 Docker 里、飞鱼跑在宿主机上时，反向地址填 `ws://host.docker.internal:8080/onebot/v11/ws`，并给容器加上 `--add-host=host.docker.internal:host-gateway`。对应的 Compose 在 `deploy/docker-compose.snowluma.yml`。QQ 还没扫码时协议端不会向飞鱼发事件；登录之后才会带上 `X-Self-ID` 连上。浏览器远程桌面在容器的 `6081`，用来扫码。
 
 令牌和飞鱼的 `ONEBOT_V11_ACCESS_TOKEN` 相同。也可以在 WebUI 的「连接 QQ」页写入 `data/runtime.env`，重启后生效。要让飞鱼主动连出去，在同一页展开正向 WebSocket。
 
