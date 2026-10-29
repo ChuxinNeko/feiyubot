@@ -7,6 +7,7 @@ import {
   Fish,
   LogOut,
   Menu,
+  Moon,
   MessageCircle,
   Settings,
   Sparkles,
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/providers", label: "模型", icon: Bot, end: false },
   { to: "/personas", label: "人格", icon: Sparkles, end: false },
   { to: "/connection", label: "连接 QQ", icon: Cable, end: false },
+  { to: "/ling", label: "从绫", icon: Moon, end: false },
   { to: "/settings", label: "设置", icon: Settings, end: false },
 ]
 

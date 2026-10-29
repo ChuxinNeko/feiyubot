@@ -11,3 +11,4 @@ build/
 data/
 *.sqlite
 *.sqlite-*
+astrbot_plugin_congling/

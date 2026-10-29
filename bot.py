@@ -35,6 +35,9 @@ async def _startup() -> None:
     app = driver.server_app
     assert app is not None
     install(app, service)
+    import asyncio
+
+    asyncio.get_running_loop().create_task(_proactive())
     password_file = service.data_dir / "admin_password.txt"
     if password_file.exists():
         nonebot.logger.info(f"管理密码写在 {password_file} ，登录 WebUI 后请尽快修改")
@@ -49,6 +52,21 @@ async def _shutdown() -> None:
         await get_service().aclose()
     except RuntimeError:
         return
+
+
+async def _proactive() -> None:
+    import asyncio
+
+    await asyncio.sleep(180)
+    while True:
+        try:
+            from feiyubot.ling.proactive import tick
+            from feiyubot.service import get_service
+
+            await tick(get_service())
+        except Exception:
+            nonebot.logger.debug("主动找人这一轮跳过")
+        await asyncio.sleep(600)
 
 
 nonebot.load_plugin("feiyubot.plugins.chat")

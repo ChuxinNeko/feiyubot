@@ -61,6 +61,7 @@ def _start_bot(port: int, data_dir: Path, log_path: Path) -> subprocess.Popen:
             "FEIYU_ADMIN_PASSWORD": "test-onebot",
             "ONEBOT_V11_ACCESS_TOKEN": "",
             "ONEBOT_V11_WS_URLS": "[]",
+            "FEIYU_LING_NO_DELAY": "1",
         }
     )
     log = log_path.open("ab")
@@ -197,13 +198,13 @@ def test_group_reply_survives_restart(tmp_path):
                 ],
             )
         )
-        assert first == ["你养的猫叫鱼丸。"]
+        assert first == ["你养的猫叫鱼丸"]
 
         _stop(proc)
         proc = _start_bot(port, data_dir, log_path)
         _wait_health(port)
         second = asyncio.run(_roundtrip(port, [(_event("我的猫叫什么？", 3, addressed=True), True)]))
-        assert second == ["你养的猫叫鱼丸。"]
+        assert second == ["你养的猫叫鱼丸"]
 
         with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=10) as client:
             assert client.post("/api/login", json={"password": "test-onebot"}).status_code == 200
@@ -212,7 +213,7 @@ def test_group_reply_survives_restart(tmp_path):
             body = detail.json()
             contents = [item["content"] for item in body["messages"]]
         assert any("记住：群里的猫叫鱼丸" in item for item in contents)
-        assert contents.count("你养的猫叫鱼丸。") == 2
+        assert sum("你养的猫叫鱼丸" in item for item in contents) == 2
         assert "鱼丸" in body["memory_notes"]
     except Exception:
         if log_path.exists():

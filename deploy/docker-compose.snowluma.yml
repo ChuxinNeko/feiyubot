@@ -1,0 +1,41 @@
+# SnowLuma 协议端。飞鱼继续听宿主机 8080，由 SnowLuma 反向连过去。
+# 启动后把 config/onebot.json 里的 wsClients 指到：
+#   ws://host.docker.internal:8080/onebot/v11/ws
+# 远程桌面密码用环境变量 VNC_PASSWD，不要写进仓库。
+
+services:
+  snowluma:
+    image: motricseven7/snowluma:latest
+    container_name: snowluma
+    restart: unless-stopped
+    shm_size: 1gb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    environment:
+      VNC_PASSWD: ${VNC_PASSWD:-}
+      SNOWLUMA_WEBUI_HOST: 0.0.0.0
+      SNOWLUMA_WEBUI_PORT: "5099"
+      SNOWLUMA_HOOK_AUTOLOAD: "1"
+      SNOWLUMA_QQ_FLAGS: "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+    ports:
+      - "6081:6081"
+      - "5099:5099"
+      - "3000:3000"
+      - "3001:3001"
+    volumes:
+      - qq-gateway-data:/app/data
+      - qq-client-config:/app/.config
+      - qq-client-data:/app/.local/share
+
+volumes:
+  qq-gateway-data:
+  qq-client-config:
+  qq-client-data:

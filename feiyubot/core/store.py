@@ -133,9 +133,47 @@ class Store:
                 message TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS ling_atoms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scope TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                content TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                tags TEXT NOT NULL DEFAULT '',
+                strength REAL NOT NULL,
+                hits INTEGER NOT NULL DEFAULT 0,
+                last_hit_at TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ling_affinity (
+                subject TEXT PRIMARY KEY,
+                score REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ling_diary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day TEXT NOT NULL,
+                body TEXT NOT NULL,
+                mood TEXT NOT NULL DEFAULT '',
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ling_dreams (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                night_key TEXT NOT NULL,
+                body TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
             """
         )
         self._conn.commit()
+        columns = {row[1] for row in self._conn.execute("PRAGMA table_info(ling_atoms)")}
+        if "injected_at" not in columns:
+            self._conn.execute("ALTER TABLE ling_atoms ADD COLUMN injected_at TEXT")
+            self._conn.commit()
 
     def ensure_defaults(self, admin_password: str | None, password_file: Path | None = None) -> str | None:
         """补齐默认人格和初始密码。返回仅在自动生成密码时的明文，调用方负责落盘。"""
@@ -712,6 +750,140 @@ class Store:
     def _meta(self, key: str) -> str | None:
         row = self._conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return None if row is None else row["value"]
+
+    def get_meta(self, key: str) -> str | None:
+        with self._lock:
+            return self._meta(key)
+
+    def set_meta(self, key: str, value: str) -> None:
+        with self._lock:
+            self._set_meta(key, value)
+            self._conn.commit()
+
+    def add_ling_atom(self, *, scope: str, subject: str, content: str, level: int, tags: list[str], strength: float) -> int:
+        now = iso()
+        with self._lock:
+            cursor = self._conn.execute(
+                """
+                INSERT INTO ling_atoms (
+                    scope, subject, content, level, tags, strength, hits, last_hit_at, status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'active', ?)
+                """,
+                (scope, subject, content[:500], int(level), ",".join(tags), float(strength), now, now),
+            )
+            self._conn.commit()
+            return int(cursor.lastrowid)
+
+    def list_ling_atoms(self, *, subject: str | None = None, limit: int = 50, include_archived: bool = False) -> list[dict]:
+        sql = "SELECT * FROM ling_atoms"
+        args: list[object] = []
+        where = []
+        if subject:
+            where.append("subject = ?")
+            args.append(subject)
+        if not include_archived:
+            where.append("status = 'active'")
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        return [dict(row) for row in rows]
+
+    def touch_ling_atom(self, atom_id: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE ling_atoms SET hits = hits + 1, last_hit_at = ? WHERE id = ?",
+                (iso(), atom_id),
+            )
+            self._conn.commit()
+
+    def archive_ling_atom(self, atom_id: int, status: str = "archived") -> None:
+        with self._lock:
+            self._conn.execute("UPDATE ling_atoms SET status = ? WHERE id = ?", (status, atom_id))
+            self._conn.commit()
+
+    def set_ling_atom_level(self, atom_id: int, level: int, strength: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE ling_atoms SET level = ?, strength = ? WHERE id = ?",
+                (int(level), float(strength), atom_id),
+            )
+            self._conn.commit()
+
+    def mark_ling_injected(self, atom_id: int) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE ling_atoms SET injected_at = ? WHERE id = ?", (iso(), atom_id))
+            self._conn.commit()
+
+    def retime_ling_atom(self, atom_id: int, when: str) -> None:
+        with self._lock:
+            self._conn.execute("UPDATE ling_atoms SET last_hit_at = ? WHERE id = ?", (when, atom_id))
+            self._conn.commit()
+
+    def forget_ling_atoms(self, keyword: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "UPDATE ling_atoms SET status = 'forgotten' WHERE status = 'active' AND content LIKE ?",
+                (f"%{keyword}%",),
+            )
+            self._conn.commit()
+            return int(cursor.rowcount)
+
+    def count_ling_atoms(self) -> int:
+        with self._lock:
+            row = self._conn.execute("SELECT COUNT(*) AS n FROM ling_atoms WHERE status = 'active'").fetchone()
+        return int(row["n"])
+
+    def add_affinity(self, subject: str, delta: float, *, cap: float = 15) -> float:
+        now = iso()
+        with self._lock:
+            row = self._conn.execute("SELECT score FROM ling_affinity WHERE subject = ?", (subject,)).fetchone()
+            score = float(row["score"]) if row else 0.0
+            score = max(0.0, score + max(-cap, min(cap, delta)))
+            self._conn.execute(
+                """
+                INSERT INTO ling_affinity (subject, score, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(subject) DO UPDATE SET score = excluded.score, updated_at = excluded.updated_at
+                """,
+                (subject, score, now),
+            )
+            self._conn.commit()
+        return score
+
+    def affinity_of(self, subject: str) -> float:
+        with self._lock:
+            row = self._conn.execute("SELECT score FROM ling_affinity WHERE subject = ?", (subject,)).fetchone()
+        return 0.0 if row is None else float(row["score"])
+
+    def add_diary(self, day: str, body: str, mood: str) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO ling_diary (day, body, mood, pinned, created_at) VALUES (?, ?, ?, 0, ?)",
+                (day, body[:4000], mood[:40], iso()),
+            )
+            self._conn.commit()
+            return int(cursor.lastrowid)
+
+    def list_diary(self, limit: int = 14) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM ling_diary ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_dream(self, night_key: str, body: str, level: int, *, pinned: bool = False) -> int:
+        with self._lock:
+            cursor = self._conn.execute(
+                "INSERT INTO ling_dreams (night_key, body, level, pinned, created_at) VALUES (?, ?, ?, ?, ?)",
+                (night_key, body[:2000], int(level), int(pinned), iso()),
+            )
+            self._conn.commit()
+            return int(cursor.lastrowid)
+
+    def list_dreams(self, limit: int = 20) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute("SELECT * FROM ling_dreams ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
 
     def _set_meta(self, key: str, value: str) -> None:
         self._conn.execute(

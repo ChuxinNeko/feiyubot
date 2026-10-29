@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 import httpx
 from fastapi import FastAPI
@@ -249,9 +250,81 @@ def test_web_api_round_trip(tmp_path):
     second = client.post(
         "/api/chat", json={"content": "我的猫叫什么？", "session_id": first["session_id"]}
     ).json()
-    assert second["text"] == "你养的猫叫鱼丸。"
+    assert second["text"] == "你养的猫叫鱼丸"
     history = client.get(f"/api/sessions/{first['session_id']}/messages").json()["messages"]
     assert any("鱼丸" in item["content"] for item in history)
     assert client.post("/api/chat", json={"content": "hi", "session_id": "group:1"}).status_code == 400
     ping = client.post("/api/chat", json={"content": "/ping", "session_id": first["session_id"]}).json()
     assert ping["text"] == "pong"
+
+
+def test_unread_comes_back_when_she_wakes(tmp_path):
+    service = _service(tmp_path)
+
+    async def _run():
+        service.store.set_meta(
+            "ling_night",
+            json.dumps(
+                {
+                    "asleep": True,
+                    "sleep_at": int(time.time()) - 30,
+                    "kind": "night",
+                    "since": 10,
+                    "energy": 0,
+                    "unread": ["群里的猫叫鱼丸"],
+                }
+            ),
+        )
+        quiet = await service.pipeline.handle(
+            Incoming(session_id="group:9", kind="group", text="随便说说", humanize=True, addressed=False)
+        )
+        woken = await service.pipeline.handle(
+            Incoming(session_id="web:abc123abc123", kind="web", text="绫在吗", humanize=True, sender_id="9")
+        )
+        await service.aclose()
+        return quiet, woken
+
+    quiet, woken = asyncio.run(_run())
+    assert quiet.replied is False
+    assert woken.replied is True
+    blob = "\n".join(call["blob"] for call in service.backend.calls)
+    assert "睡着时没读完的" in blob
+    assert "群里的猫叫鱼丸" in blob
+
+
+def test_sleep_switch_off_keeps_answering(tmp_path, monkeypatch):
+    monkeypatch.setattr("feiyubot.core.pipeline.in_fatigue", lambda: "night")
+    service = _service(tmp_path)
+    from feiyubot.ling import config as ling_config
+
+    ling_config.save(service.store, {"allow_sleep": False})
+    service.store.set_meta(
+        "ling_night",
+        json.dumps({"asleep": False, "energy": 0, "fatigue_turns": 9, "last_energy_at": time.time()}),
+    )
+
+    async def _run():
+        result = await service.pipeline.handle(
+            Incoming(session_id="web:abc123abc123", kind="web", text="在吗", humanize=True)
+        )
+        await service.aclose()
+        return result
+
+    result = asyncio.run(_run())
+    assert result.replied is True
+    assert "睡" not in result.text
+
+
+def test_compat_command_says_feiyu_owns_it(tmp_path):
+    service = _service(tmp_path)
+
+    async def _run():
+        result = await service.pipeline.handle(
+            Incoming(session_id="web:abc123abc123", kind="web", text="/绫 兼容", humanize=True, is_admin=True)
+        )
+        await service.aclose()
+        return result
+
+    result = asyncio.run(_run())
+    assert result.replied is True
+    assert "自己负责" in result.text
