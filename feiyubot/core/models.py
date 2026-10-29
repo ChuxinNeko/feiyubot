@@ -163,6 +163,7 @@ class TurnResult:
     session_id: str
     reason: str
     provider: str | None = None
+    bubbles: list[str] = field(default_factory=list)
 
 
 DEFAULT_PERSONA_NAME = "飞鱼"

@@ -9,6 +9,7 @@ import { LoginPage } from "@/pages/login"
 import { MemoryPage } from "@/pages/memory"
 import { PersonasPage } from "@/pages/personas"
 import { ProvidersPage } from "@/pages/providers"
+import { LingPage } from "@/pages/ling"
 import { SettingsPage } from "@/pages/settings"
 
 export default function App() {
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="personas" element={<PersonasPage />} />
         <Route path="connection" element={<ConnectionPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="ling" element={<LingPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

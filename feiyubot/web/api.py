@@ -18,7 +18,7 @@ from feiyubot.core.store import iso, mask_secret, new_id, public_message, utcnow
 from feiyubot.service import Service, read_runtime, write_runtime
 
 UI_DIR = Path(__file__).parent / "ui"
-SPA_PAGES = ("/memory", "/providers", "/personas", "/connection", "/settings")
+SPA_PAGES = ("/memory", "/providers", "/personas", "/connection", "/settings", "/ling")
 COOKIE = "feiyu_session"
 _LOGIN_FAILURES: dict[str, list[float]] = {}
 _WEB_SESSION = re.compile(r"web:[a-f0-9]{12}")
@@ -93,6 +93,139 @@ def build_router(service: Service) -> APIRouter:
     def me(request: Request) -> dict:
         require(request)
         return {"ok": True, "password_is_default": store.verify_password("feiyu-admin")}
+
+    @router.get("/api/ling")
+    def get_ling(request: Request) -> dict:
+        require(request)
+        from feiyubot.ling import config as ling_config
+        from feiyubot.ling.night import stage_at
+
+        cfg = ling_config.load(store)
+        public = dict(cfg)
+        public["qzone_cookie"] = "已填写" if cfg["qzone_cookie"] else ""
+        night = {}
+        raw = store.get_meta("ling_night")
+        if raw:
+            import json
+
+            try:
+                night = json.loads(raw)
+            except json.JSONDecodeError:
+                night = {}
+        stage = None
+        if night.get("asleep"):
+            stage = stage_at(int(night.get("sleep_at") or 0), __import__("time").time(), kind=str(night.get("kind") or "night"))
+        return {
+            "config": public,
+            "atoms": store.count_ling_atoms(),
+            "night": night,
+            "stage": stage,
+            "diary": store.list_diary(limit=7),
+            "dreams": store.list_dreams(limit=7),
+            "recent_atoms": store.list_ling_atoms(limit=40),
+            "compat": "拟人、记忆、节奏和输出守卫都由飞鱼自己负责。这里没有别的插件要让位。",
+        }
+
+    @router.put("/api/ling")
+    def put_ling(payload: dict, request: Request) -> dict:
+        require(request)
+        from feiyubot.ling import config as ling_config
+
+        allowed = {
+            "enabled",
+            "persona_name",
+            "active_hours",
+            "reply_threshold",
+            "reply_window_seconds",
+            "max_bubbles_group",
+            "max_bubbles_private",
+            "allow_sleep",
+            "wake_mode",
+            "forgetting_mode",
+            "inject_top_k",
+            "extra_admins",
+            "include_group_role",
+            "qzone_cookie",
+            "qzone_allow_write",
+            "qzone_uin",
+            "proactive_enabled",
+            "proactive_daily_cap",
+            "weather_city",
+            "decision_log",
+            "style_hint",
+            "min_turns_before_sleep",
+            "latest_sleep",
+            "qzone_read_others",
+        }
+        updates = {key: payload[key] for key in allowed if key in payload}
+        if "extra_admins" in updates and isinstance(updates["extra_admins"], str):
+            updates["extra_admins"] = [item.strip() for item in updates["extra_admins"].replace("，", ",").split(",") if item.strip()]
+        if updates.get("qzone_cookie") in {"", "已填写"}:
+            updates.pop("qzone_cookie", None)
+        saved = ling_config.save(store, updates)
+        saved["qzone_cookie"] = "已填写" if saved["qzone_cookie"] else ""
+        return saved
+
+    @router.post("/api/ling/diary")
+    async def write_diary(request: Request) -> dict:
+        require(request)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        day = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+        existing = next((item for item in store.list_diary(limit=14) if item["day"] == day), None)
+        if existing:
+            return {"ok": True, "body": existing["body"]}
+        atoms = store.list_ling_atoms(limit=6)
+        material = "；".join(str(item["content"])[:40] for item in atoms)
+        body = ""
+        if material:
+            try:
+                completion = await service.router.complete(
+                    [
+                        {
+                            "role": "system",
+                            "content": "写一篇很短的第一人称日记，只写素材里真实发生的事，不要列点，不要编人名。",
+                        },
+                        {"role": "user", "content": material},
+                    ],
+                    purpose="diary",
+                )
+                body = completion.text.strip()
+            except Exception:
+                body = ""
+        if not body:
+            body = ("今天真正发生的：" + material) if material else "今天没什么特别要写的。"
+        store.add_diary(day, body[:4000], "平静")
+        return {"ok": True, "body": body}
+
+    @router.post("/api/ling/forget")
+    def forget_ling(payload: dict, request: Request) -> dict:
+        require(request)
+        keyword = str((payload or {}).get("keyword") or "").strip()
+        if not keyword:
+            return {"ok": False, "count": 0}
+        return {"ok": True, "count": store.forget_ling_atoms(keyword)}
+
+    @router.post("/api/ling/signature")
+    async def ling_signature(payload: dict, request: Request) -> dict:
+        require(request)
+        from feiyubot.ling.qqact import set_signature
+
+        text = await set_signature(str((payload or {}).get("text") or ""))
+        return {"ok": True, "text": text}
+
+    @router.post("/api/ling/dream")
+    def write_dream(request: Request) -> dict:
+        require(request)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        atoms = store.list_ling_atoms(limit=1)
+        body = "梦到" + (str(atoms[0]["content"])[:80] if atoms else "一条安静的河")
+        night = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+        store.add_dream(night, body, 3)
+        return {"ok": True, "body": body}
 
     @router.get("/api/status")
     def status(request: Request) -> dict:
@@ -360,6 +493,8 @@ def build_router(service: Service) -> APIRouter:
                 text=content,
                 sender_name="你",
                 title=str(payload.get("title") or "网页对话"),
+                humanize=True,
+                is_admin=True,
             )
         )
         return {
